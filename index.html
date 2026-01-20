@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SUDOKU MASTER - Hệ thống giải đề</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root { --cell-size: clamp(34px, 9.5vw, 50px); }
+        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+        
+        .sudoku-grid {
+            display: grid;
+            grid-template-columns: repeat(9, var(--cell-size));
+            grid-template-rows: repeat(9, var(--cell-size));
+            border: 4px solid #0f172a;
+            width: max-content;
+            margin: 0 auto;
+            background-color: #0f172a;
+        }
+        .sudoku-cell {
+            width: var(--cell-size);
+            height: var(--cell-size);
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: calc(var(--cell-size) * 0.5);
+            font-weight: 800;
+            border: 1px solid #cbd5e1;
+            outline: none;
+            color: #2563eb;
+            text-align: center;
+            transition: background 0.2s;
+        }
+        .sudoku-cell:focus { background-color: #f0f9ff; box-shadow: inset 0 0 0 2px #3b82f6; z-index: 10; }
+        .sudoku-cell.fixed { background-color: #f8fafc; color: #475569; cursor: not-allowed; }
+        
+        /* Phân tách vùng 3x3 */
+        .sudoku-cell:nth-child(3n) { border-right: 4px solid #0f172a; }
+        .sudoku-cell:nth-child(9n) { border-right: 1px solid #cbd5e1; }
+        .sudoku-cell:nth-child(n+19):nth-child(-n+27),
+        .sudoku-cell:nth-child(n+46):nth-child(-n+54) { border-bottom: 4px solid #0f172a; }
+
+        .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 100; backdrop-filter: blur(8px); }
+        .modal.active { display: flex; }
+
+        input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    </style>
+</head>
+<body class="bg-gray-50 text-slate-900">
+
+    <div class="max-w-5xl mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="text-center mb-10">
+            <h1 class="text-4xl font-extrabold text-slate-900 tracking-tight">SUDOKU <span class="text-blue-600 underline decoration-blue-200">EXAM</span></h1>
+            <p class="text-slate-500 mt-2 font-medium">Nhập mã đề từ giáo viên để bắt đầu làm bài</p>
+        </div>
+
+        <!-- Màn hình nhập mã đề -->
+        <div id="setupScreen" class="bg-white p-8 rounded-3xl shadow-xl border border-slate-200 max-w-xl mx-auto transition-all">
+            <div class="space-y-6">
+                <div class="relative">
+                    <label class="block text-sm font-bold text-slate-700 mb-2 uppercase ml-1">Mã đề thi của bạn</label>
+                    <div class="relative">
+                        <i class="fas fa-key absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                        <input type="text" id="codeInp" placeholder="VÍ DỤ: DE001" 
+                            class="w-full pl-12 pr-4 py-4 border-2 border-slate-100 rounded-2xl focus:border-blue-500 outline-none uppercase font-black text-xl tracking-widest text-blue-700">
+                    </div>
+                </div>
+                <button onclick="startGame()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-2xl font-bold text-lg shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-3">
+                    <i class="fas fa-rocket"></i> BẮT ĐẦU LÀM BÀI
+                </button>
+                <div id="errorTxt" class="hidden text-center text-red-500 font-bold text-sm bg-red-50 py-3 rounded-xl border border-red-100 italic">
+                    <i class="fas fa-times-circle mr-2"></i>Mã đề không tồn tại trên hệ thống!
+                </div>
+            </div>
+        </div>
+
+        <!-- Màn hình chơi game (Sẽ hiện khi nhập đúng mã) -->
+        <div id="mainGame" class="hidden animate-in fade-in zoom-in duration-500 space-y-8">
+            
+            <!-- Thanh trạng thái chính -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-white border-2 border-slate-200 p-4 rounded-2xl shadow-sm flex flex-col items-center justify-center">
+                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Đang làm đề</span>
+                    <span id="statCode" class="text-xl font-mono font-black text-blue-900 italic">---</span>
+                </div>
+                
+                <div class="bg-white border-2 border-slate-200 p-4 rounded-2xl shadow-sm flex flex-col items-center justify-center">
+                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 text-center">Thời gian làm bài</span>
+                    <div class="flex items-center gap-2 text-blue-600">
+                        <i class="fas fa-clock text-xs"></i>
+                        <span id="statTimer" class="text-xl font-mono font-black">00:00</span>
+                    </div>
+                </div>
+
+                <div class="bg-white border-2 border-slate-200 p-4 rounded-2xl shadow-sm flex flex-col items-center justify-center">
+                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 text-center">Số lần tra đáp án</span>
+                    <div class="flex items-center gap-2 text-orange-600">
+                        <i class="fas fa-eye text-xs"></i>
+                        <span id="statViews" class="text-xl font-mono font-black">0</span>
+                    </div>
+                </div>
+
+                <button onclick="viewPDF()" class="bg-emerald-500 hover:bg-emerald-600 text-white p-4 rounded-2xl shadow-lg shadow-emerald-100 flex items-center justify-center gap-2 font-bold transition-all border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1">
+                    <i class="fas fa-file-pdf"></i>
+                    XEM ĐÁP ÁN PDF
+                </button>
+            </div>
+
+            <!-- Bảng Sudoku -->
+            <div class="bg-white p-6 md:p-10 rounded-[2.5rem] shadow-2xl border border-slate-200 flex justify-center">
+                <div id="sudokuGrid" class="sudoku-grid shadow-2xl rounded-sm overflow-hidden border-4 border-slate-900"></div>
+            </div>
+
+            <!-- Nút điều khiển -->
+            <div class="flex justify-center gap-4">
+                <button onclick="confirmFinish()" class="bg-blue-600 text-white px-12 py-4 rounded-2xl font-black text-lg shadow-xl hover:bg-blue-700 transition-all active:scale-95">
+                    NỘP BÀI THI
+                </button>
+                <button onclick="location.reload()" class="bg-slate-200 text-slate-600 px-8 py-4 rounded-2xl font-bold hover:bg-slate-300 transition-all">
+                    THOÁT ĐỀ
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PDF Viewer Modal -->
+    <div id="pdfModal" class="modal items-center justify-center p-4">
+        <div class="bg-white rounded-3xl w-full max-w-5xl h-[90vh] flex flex-col shadow-2xl overflow-hidden scale-in duration-300">
+            <div class="p-5 border-b flex justify-between items-center bg-slate-50">
+                <div class="flex items-center gap-3">
+                    <div class="bg-emerald-100 text-emerald-600 w-10 h-10 rounded-full flex items-center justify-center">
+                        <i class="fas fa-file-invoice"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-black text-slate-800 uppercase text-sm">Tài liệu hướng dẫn & Đáp án</h3>
+                        <p class="text-[10px] text-slate-500 font-bold uppercase">Mã đề: <span id="pdfTarget" class="text-blue-600"></span></p>
+                    </div>
+                </div>
+                <button onclick="closePDF()" class="w-12 h-12 rounded-full hover:bg-red-50 text-slate-300 hover:text-red-500 transition-all text-2xl flex items-center justify-center">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="flex-grow bg-slate-200 relative">
+                <div id="loadingPdf" class="absolute inset-0 flex items-center justify-center bg-white z-10">
+                    <div class="animate-spin rounded-full h-10 w-10 border-4 border-blue-500 border-t-transparent"></div>
+                </div>
+                <iframe id="pdfFrame" src="" class="w-full h-full border-none shadow-inner" onload="document.getElementById('loadingPdf').style.display='none'"></iframe>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tải Database -->
+    <script src="database.js"></script>
+
+    <script>
+        let session = {
+            activeCode: "",
+            grid: [],
+            initial: [],
+            timer: null,
+            seconds: 0,
+            views: 0
+        };
+
+        function startGame() {
+            const val = document.getElementById('codeInp').value.trim().toUpperCase();
+            
+            if (!window.QUIZ_DATABASE || !window.QUIZ_DATABASE[val]) {
+                document.getElementById('errorTxt').classList.remove('hidden');
+                return;
+            }
+
+            // Khởi tạo Game
+            session.activeCode = val;
+            session.views = 0;
+            session.seconds = 0;
+            session.initial = JSON.parse(JSON.stringify(window.QUIZ_DATABASE[val].grid));
+            session.grid = JSON.parse(JSON.stringify(window.QUIZ_DATABASE[val].grid));
+
+            // Giao diện
+            document.getElementById('setupScreen').classList.add('hidden');
+            document.getElementById('mainGame').classList.remove('hidden');
+            document.getElementById('statCode').innerText = val;
+            document.getElementById('pdfTarget').innerText = val;
+            
+            renderGrid();
+            runTimer();
+        }
+
+        function renderGrid() {
+            const box = document.getElementById('sudokuGrid');
+            box.innerHTML = '';
+            
+            for(let r=0; r<9; r++) {
+                for(let c=0; c<9; c++) {
+                    const num = session.grid[r][c];
+                    const inp = document.createElement('input');
+                    inp.type = 'number';
+                    inp.className = 'sudoku-cell';
+                    
+                    if(num !== 0) {
+                        inp.value = num;
+                        if(session.initial[r][c] !== 0) {
+                            inp.classList.add('fixed');
+                            inp.readOnly = true;
+                        }
+                    }
+
+                    inp.oninput = (e) => {
+                        let v = parseInt(e.target.value);
+                        session.grid[r][c] = (v >= 1 && v <= 9) ? v : 0;
+                    };
+
+                    // Di chuyển phím mũi tên
+                    inp.onkeydown = (e) => {
+                        const cells = document.querySelectorAll('.sudoku-cell');
+                        let idx = r * 9 + c;
+                        if(e.key === 'ArrowRight') idx++;
+                        if(e.key === 'ArrowLeft') idx--;
+                        if(e.key === 'ArrowUp') idx -= 9;
+                        if(e.key === 'ArrowDown') idx += 9;
+                        if(cells[idx]) cells[idx].focus();
+                    };
+
+                    box.appendChild(inp);
+                }
+            }
+        }
+
+        function runTimer() {
+            if(session.timer) clearInterval(session.timer);
+            session.timer = setInterval(() => {
+                session.seconds++;
+                const m = Math.floor(session.seconds / 60).toString().padStart(2, '0');
+                const s = (session.seconds % 60).toString().padStart(2, '0');
+                document.getElementById('statTimer').innerText = `${m}:${s}`;
+            }, 1000);
+        }
+
+        function viewPDF() {
+            session.views++;
+            document.getElementById('statViews').innerText = session.views;
+            document.getElementById('loadingPdf').style.display = 'flex';
+            document.getElementById('pdfFrame').src = window.QUIZ_DATABASE[session.activeCode].pdf;
+            document.getElementById('pdfModal').classList.add('active');
+        }
+
+        function closePDF() {
+            document.getElementById('pdfModal').classList.remove('active');
+            document.getElementById('pdfFrame').src = "";
+        }
+
+        function confirmFinish() {
+            const m = Math.floor(session.seconds / 60);
+            const s = session.seconds % 60;
+            alert(`KẾT QUẢ BÀI LÀM:\n- Mã đề: ${session.activeCode}\n- Thời gian: ${m} phút ${s} giây\n- Số lần xem đáp án: ${session.views} lần.\n\nKết quả đã được ghi nhận!`);
+        }
+    </script>
+</body>
+</html>
